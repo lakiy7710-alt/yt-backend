@@ -1,10 +1,12 @@
-VISITOR_DATA = os.getenv("VISITOR_DATA")
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import yt_dlp
 import requests
 import re
 import os
+
+PO_TOKEN = os.getenv("PO_TOKEN")
+VISITOR_DATA = os.getenv("VISITOR_DATA")
 
 app = FastAPI()
 
@@ -16,11 +18,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PO_TOKEN = os.getenv("PO_TOKEN")
-
 @app.get("/")
 def home():
-    return {"status": "YT backend running with PO_TOKEN + multi Invidious fallback"}
+    return {"status": "YT backend running with PO_TOKEN + VISITOR_DATA + fallback"}
 
 @app.get("/get_stream")
 def get_stream(videoId: str):
@@ -37,17 +37,24 @@ def get_stream(videoId: str):
             "format": "bestaudio/best",
             "quiet": True,
             "noplaylist": True,
+            "geo_bypass": True,
+            "nocheckcertificate": True,
             "http_headers": {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
             }
         }
 
         if PO_TOKEN:
+            youtube_args = {
+                "player_client": ["android", "web"],
+                "po_token": [f"web+{PO_TOKEN}"]
+            }
+
+            if VISITOR_DATA:
+                youtube_args["visitor_data"] = [VISITOR_DATA]
+
             ydl_opts["extractor_args"] = {
-                "youtube": {
-                    "player_client": ["android", "web"],
-                    "po_token": [f"web+{PO_TOKEN}"]
-                }
+                "youtube": youtube_args
             }
 
         try:
@@ -73,10 +80,11 @@ def get_stream(videoId: str):
             print("yt-dlp failed, trying Invidious:", ytdlp_error)
 
             INVIDIOUS_SERVERS = [
-                "https://inv.tux.pizza",
                 "https://yewtu.be",
-                "https://invidious.kavin.rocks",
-                "https://vid.puffyan.us"
+                "https://invidious.privacydev.net",
+                "https://invidious.fdn.fr",
+                "https://vid.puffyan.us",
+                "https://inv.tux.pizza"
             ]
 
             data = None
@@ -85,7 +93,7 @@ def get_stream(videoId: str):
             for server in INVIDIOUS_SERVERS:
                 try:
                     inv_url = f"{server}/api/v1/videos/{actual_id}"
-                    res = requests.get(res_url if False else inv_url, timeout=5)
+                    res = requests.get(inv_url, timeout=8)
 
                     if res.status_code == 200:
                         data = res.json()
@@ -109,12 +117,14 @@ def get_stream(videoId: str):
             if not audio_links:
                 raise Exception("No audio stream found from Invidious")
 
+            best_audio = audio_links[-1]
+
             return {
                 "status": "success",
                 "source": "invidious",
                 "server": used_server,
                 "videoId": actual_id,
-                "url": audio_links[-1].get("url"),
+                "url": best_audio.get("url"),
                 "title": data.get("title"),
                 "duration": data.get("lengthSeconds"),
                 "thumbnail": data.get("videoThumbnails", [{}])[-1].get("url")
