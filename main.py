@@ -15,34 +15,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PO_TOKEN = os.getenv("PO_TOKEN")  # Render se aayega
+PO_TOKEN = os.getenv("PO_TOKEN")
 
 @app.get("/")
 def home():
-    return {"status": "YT backend running (secure version)"}
+    return {"status": "YT backend running with PO_TOKEN + multi Invidious fallback"}
 
 @app.get("/get_stream")
 def get_stream(videoId: str):
     try:
-        # STEP 1: Extract ID
         match = re.search(r"([a-zA-Z0-9_-]{11})", videoId)
+
         if not match:
-            raise HTTPException(status_code=400, detail="Invalid videoId")
+            raise HTTPException(status_code=400, detail="Invalid YouTube videoId")
 
         actual_id = match.group(1)
         video_url = f"https://www.youtube.com/watch?v={actual_id}"
 
-        # STEP 2: yt-dlp config
         ydl_opts = {
             "format": "bestaudio/best",
             "quiet": True,
             "noplaylist": True,
             "http_headers": {
-                "User-Agent": "Mozilla/5.0"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
             }
         }
 
-        # PO_TOKEN agar hai tab hi use karo
         if PO_TOKEN:
             ydl_opts["extractor_args"] = {
                 "youtube": {
@@ -56,44 +54,76 @@ def get_stream(videoId: str):
                 info = ydl.extract_info(video_url, download=False)
 
                 stream_url = info.get("url")
+
                 if not stream_url:
-                    raise Exception("No stream url")
+                    raise Exception("yt-dlp stream url missing")
 
                 return {
                     "status": "success",
                     "source": "yt-dlp",
+                    "videoId": actual_id,
                     "url": stream_url,
-                    "title": info.get("title")
+                    "title": info.get("title"),
+                    "duration": info.get("duration"),
+                    "thumbnail": info.get("thumbnail")
                 }
 
-        except Exception as err:
-            print("yt-dlp failed → fallback:", err)
+        except Exception as ytdlp_error:
+            print("yt-dlp failed, trying Invidious:", ytdlp_error)
 
-            # STEP 3: Invidious fallback
-            inv_url = f"https://inv.tux.pizza/api/v1/videos/{actual_id}"
-            res = requests.get(inv_url, timeout=10)
+            INVIDIOUS_SERVERS = [
+                "https://inv.tux.pizza",
+                "https://yewtu.be",
+                "https://invidious.kavin.rocks",
+                "https://vid.puffyan.us"
+            ]
 
-            if res.status_code != 200:
-                raise Exception("Invidious failed")
+            data = None
+            used_server = None
 
-            data = res.json()
+            for server in INVIDIOUS_SERVERS:
+                try:
+                    inv_url = f"{server}/api/v1/videos/{actual_id}"
+                    res = requests.get(res_url if False else inv_url, timeout=5)
+
+                    if res.status_code == 200:
+                        data = res.json()
+                        used_server = server
+                        print(f"Using Invidious: {server}")
+                        break
+
+                except Exception as e:
+                    print(f"{server} failed:", e)
+
+            if not data:
+                raise Exception("All Invidious servers failed")
 
             formats = data.get("adaptiveFormats", []) + data.get("formatStreams", [])
 
-            audio = [
+            audio_links = [
                 f for f in formats
                 if "audio" in f.get("type", "") and f.get("url")
             ]
 
-            if not audio:
-                raise Exception("No audio stream")
+            if not audio_links:
+                raise Exception("No audio stream found from Invidious")
 
             return {
                 "status": "success",
                 "source": "invidious",
-                "url": audio[-1]["url"],
-                "title": data.get("title")
+                "server": used_server,
+                "videoId": actual_id,
+                "url": audio_links[-1].get("url"),
+                "title": data.get("title"),
+                "duration": data.get("lengthSeconds"),
+                "thumbnail": data.get("videoThumbnails", [{}])[-1].get("url")
             }
 
+    except HTTPException:
+        raise
+
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Stream fetch failed: {str(e)}"
+        )
