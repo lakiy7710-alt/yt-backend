@@ -11,16 +11,15 @@ def home():
 
 @app.get("/get_stream")
 def get_stream(videoId: str):
-    # AUTO-FIXER: Agar puri ID ya link aaye, ye sirf 11 digit ki ID nikal lega
+    # ID nikalne ka logic
     actual_id = videoId
     match = re.search(r"([a-zA-Z0-9_-]{11})", videoId)
     if match:
         actual_id = match.group(1)
     
-    # Ab link ekdum perfect banega
+    # SAHI URL: Isme /watch?v= hona bahut zaroori hai
     video_url = f"https://youtube.com{actual_id}"
-    print(f"DEBUG: Playing URL -> {video_url}")
-
+    
     ydl_opts = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -42,7 +41,7 @@ def get_stream(videoId: str):
     except Exception as e:
         print(f"YT Direct failed, trying fallback: {e}")
         try:
-            # Fallback to Invidious
+            # INVIDIOUS SAHI URL: /api/v1/videos/ lagana zaroori hai
             inv_url = f"https://tux.pizza{actual_id}"
             res = requests.get(inv_url, timeout=10)
             data = res.json()
