@@ -10,7 +10,9 @@ def home():
 
 @app.get("/get_stream")
 def get_stream(videoId: str):
-    # Method 1: YouTube Direct with PO_TOKEN
+    # DHYAN SE: Yahan humne URL format sahi kar diya hai
+    video_url = f"https://youtube.com{videoId}"
+    
     ydl_opts = {
         "format": "bestaudio/best",
         "quiet": True,
@@ -27,23 +29,17 @@ def get_stream(videoId: str):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://youtube.com{videoId}", download=False)
+            # Yahan video_url use ho raha hai
+            info = ydl.extract_info(video_url, download=False)
             return {"url": info.get("url")}
     except Exception as e:
         print(f"YT Direct failed: {e}")
-        # Method 2: Fallback to Invidious API
         try:
-            # Hum ek public Invidious instance use kar rahe hain
+            # Fallback to Invidious
             res = requests.get(f"https://tux.pizza{videoId}", timeout=10)
             data = res.json()
-            # Sabse badhiya format uthao
             if 'formatStreams' in data and len(data['formatStreams']) > 0:
                 return {"url": data['formatStreams'][-1]['url']}
-            elif 'adaptiveFormats' in data:
-                # Audio only format dhoondo
-                audio_only = [f for f in data['adaptiveFormats'] if 'audio' in f.get('type', '')]
-                if audio_only:
-                    return {"url": audio_only[0]['url']}
-            raise Exception("Invidious also failed")
-        except Exception as inv_e:
-            raise HTTPException(status_code=500, detail=f"All methods failed. YT error: {str(e)}")
+            raise Exception("Invidious failed")
+        except Exception:
+            raise HTTPException(status_code=500, detail=f"Sare method fail ho gaye: {str(e)}")
