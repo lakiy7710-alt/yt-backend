@@ -1,3 +1,4 @@
+VISITOR_DATA = os.getenv("VISITOR_DATA")
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import yt_dlp
