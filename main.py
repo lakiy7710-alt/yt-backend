@@ -10,7 +10,7 @@ def home():
 
 @app.get("/get_stream")
 def get_stream(videoId: str):
-    # DHYAN SE: Yahan humne URL format sahi kar diya hai
+    # BILKUL AISE HI LIKHNA: Beach mein /watch?v= hona zaroori hai
     video_url = f"https://youtube.com{videoId}"
     
     ydl_opts = {
@@ -29,14 +29,14 @@ def get_stream(videoId: str):
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # Yahan video_url use ho raha hai
             info = ydl.extract_info(video_url, download=False)
             return {"url": info.get("url")}
     except Exception as e:
         print(f"YT Direct failed: {e}")
         try:
-            # Fallback to Invidious
-            res = requests.get(f"https://tux.pizza{videoId}", timeout=10)
+            # Invidious fallback ka sahi link
+            inv_url = f"https://tux.pizza{videoId}"
+            res = requests.get(inv_url, timeout=10)
             data = res.json()
             if 'formatStreams' in data and len(data['formatStreams']) > 0:
                 return {"url": data['formatStreams'][-1]['url']}
